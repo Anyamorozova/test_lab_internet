@@ -47,22 +47,46 @@ class User
 
     public function updateUser($update) // обновление данных у пользователя, в массиве update поля, которые хочет обновить пользователь
     {
-        $result_row = $dbh->query("SELECT id FROM users WHERE login = '$this->login'");
+        if (empty($update)) return true; // если передали пустой массив, то сразу завершаем выполнение
+
+        $login_first = $this->login;
+        $result_row = $dbh->query("SELECT id, password FROM users WHERE login = '$login_first'");
         if ($result_row->num_rows == 1)
         {
             $str_set = "";
-            foreach ($update as $item => $value) 
+            // т.к. логин и пароль связаны, отдельный разбор 
+            if (array_key_exists('login', $update) && array_key_exists('password', $update)) // если переданы и логин, и пароль, то переданный пароль зашифровать новым логином
             {
-                if ($item == "password")
-                {
-                    $password = self::encode($value,$this->login);
-                    $str_set .= "$item = '$password',";
-                }
-                else $str_set .= "$item = '$value',";
+                $this->login = $update["login"];
+                $password = self::encode($update["password"],$this->login);
+                $str_set .= "password = '$password', login = '$this->login',";
 
             }
-            $str_set = substr($str_set, 0, -1); 
-            $result_row = $dbh->query("UPDATE users SET $str_set WHERE login = '$this->login';");
+            elseif (array_key_exists('login', $update) && !array_key_exists('password', $update)) // если перадан только логин, нужно изменить зашифрованный пароль
+            {
+                
+                $array_result = $result_row->fetch_assoc();
+                $password_db = $array_result["password"]; // получение зашифрованного пароля
+                $password_db == self::decode($password_db,$this->login); // получение оригинального пароля, по текущему логину
+                $this->login = $update["login"]; // обновление ссылки логина на новый
+                $password = self::encode($password_db,$this->login); //шифрование пароля по новому логину
+                
+                $str_set .= "password = '$password', login = '$this->login',";
+            }
+            elseif (!array_key_exists('login', $update) && array_key_exists('password', $update)) // если перадан пароль, то зашифровать переданный пароль 
+            {
+                $password = self::encode($update["password"],$this->login);
+                $str_set .= "password = '$password',";
+            }
+
+            foreach ($update as $item => $value) 
+            {
+                if ($item != "password" || $item != "login") $str_set .= "$item = '$value',"; // если данные не пароль и не логин, добавляем в изменение
+
+            }
+            
+            $str_set = substr($str_set, 0, -1); // удаление последней запятой
+            $result_row = $dbh->query("UPDATE users SET $str_set WHERE login = '$login_first';");
             return true;
         }
         else return false;
@@ -101,7 +125,11 @@ class User
 
             return true;
         }
-        else return true;
+        else 
+        {
+            $this->login = null; 
+            return true;
+        }
     }
 
     private function encode($unencoded,$key) //Шифрование по ключу
